@@ -1,0 +1,14 @@
+services:
+  replay:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_PATH=/app/data/replay.db
+      - PORT=8000
+    volumes:
+      - replay-data:/app/data   # SQLite 数据持久化
+    restart: unless-stopped
+
+volumes:
+  replay-data:

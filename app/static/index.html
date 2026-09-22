@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实验流程事件回放台</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #171e2e; --panel2: #1d2638; --border: #2a3650;
+    --text: #dbe4f5; --muted: #8494b3; --accent: #4f8cff; --green: #34c98e;
+    --yellow: #e8b93e; --red: #e5605e; --grey: #7c8aa5;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.6 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { padding: 14px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 18px; }
+  header span { color: var(--muted); font-size: 12px; }
+  .layout { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14px; color: var(--accent); margin-bottom: 12px; letter-spacing: 1px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+  input, select, textarea, button { font: inherit; }
+  input, select, textarea {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 6px 9px; outline: none;
+  }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    padding: 7px 14px; cursor: pointer; margin-top: 10px;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button.ghost:hover { color: var(--text); border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .flow-item { padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+  .flow-item:hover { border-color: var(--accent); }
+  .flow-item.active { border-color: var(--accent); background: var(--panel2); }
+  .flow-item .meta { font-size: 12px; color: var(--muted); }
+  .flow-item .del { float: right; color: var(--grey); background: none; border: none; margin: 0; padding: 0 4px; font-size: 12px; }
+  .flow-item .del:hover { color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: normal; font-size: 12px; }
+  td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 12px; }
+  .b-running   { background: #14385f; color: #6fb3ff; }
+  .b-completed { background: #0f3d2e; color: var(--green); }
+  .b-failed    { background: #46201f; color: var(--red); }
+  .b-pending   { background: #2a3040; color: var(--grey); }
+  .b-cancelled { background: #3a2f14; color: var(--yellow); text-decoration: line-through; }
+  .row-cancelled td { opacity: .45; text-decoration: line-through; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tabs button { margin: 0; background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
+  .tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .toast { position: fixed; top: 16px; right: 16px; background: var(--panel2); border: 1px solid var(--accent);
+           padding: 10px 16px; border-radius: 8px; display: none; z-index: 9; max-width: 380px; }
+  .toast.err { border-color: var(--red); }
+  .slider-row { display: flex; align-items: center; gap: 14px; }
+  .slider-row input[type=range] { flex: 1; }
+  .diff-add { color: var(--green); } .diff-del { color: var(--red); } .diff-chg { color: var(--yellow); }
+  .empty { color: var(--muted); padding: 18px; text-align: center; }
+  a.dl { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧪 实验流程事件回放台</h1>
+  <span>乱序事件 · 撤销重放 · 任意时刻状态与差异</span>
+</header>
+
+<div class="layout">
+  <!-- 左侧：流程列表 -->
+  <aside>
+    <div class="panel">
+      <h2>新建流程</h2>
+      <label>名称</label><input id="f-name" placeholder="如：蛋白纯化实验">
+      <label>版本号</label><input id="f-version" placeholder="如：v1.0">
+      <label>描述</label><input id="f-desc" placeholder="可选">
+      <button onclick="createFlow()">创建流程</button>
+    </div>
+    <div class="panel">
+      <h2>流程列表</h2>
+      <div id="flow-list"><div class="empty">加载中…</div></div>
+    </div>
+  </aside>
+
+  <!-- 右侧：工作区 -->
+  <main id="workspace" style="display:none">
+    <div class="panel">
+      <h2 id="ws-title">流程</h2>
+      <div class="tabs">
+        <button id="tab-events" class="active" onclick="showTab('events')">事件</button>
+        <button id="tab-replay" onclick="showTab('replay')">回放</button>
+        <button id="tab-diff" onclick="showTab('diff')">差异</button>
+        <button id="tab-export" onclick="showTab('export')">导出</button>
+      </div>
+
+      <!-- 事件页 -->
+      <section id="sec-events">
+        <div class="panel" style="background:var(--panel2)">
+          <h2>追加事件</h2>
+          <div class="grid3">
+            <div><label>步骤 ID</label><input id="e-step" placeholder="step-1"></div>
+            <div><label>类型</label>
+              <select id="e-type" onchange="onTypeChange()">
+                <option>started</option><option>completed</option>
+                <option>failed</option><option>updated</option><option>undone</option>
+              </select></div>
+            <div><label>业务时间（可早于已有事件，模拟乱序）</label>
+              <input id="e-time" type="datetime-local" step="1"></div>
+            <div><label>序号 seq（同时间戳时排序用）</label><input id="e-seq" type="number" placeholder="可选"></div>
+            <div><label>撤销目标事件 ID（undone 时必填）</label><input id="e-target" type="number" placeholder="可选" disabled></div>
+            <div><label>Payload（JSON）</label><input id="e-payload" placeholder='{"note":"..."}'></div>
+          </div>
+          <button onclick="appendEvent()">追加事件</button>
+          <button class="ghost" onclick="seedDemo()">填充乱序+撤销示例</button>
+          <div class="hint">提示：事件时间默认取当前时间；把新事件的时间改早即可模拟乱序到达。</div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 6px">
+          <h2 style="color:var(--accent);font-size:14px">事件列表</h2>
+          <div>
+            <button class="ghost" id="ord-received" onclick="loadEvents('received')">到达顺序</button>
+            <button class="ghost" id="ord-replay" onclick="loadEvents('replay')">回放顺序</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>步骤</th><th>类型</th><th>业务时间</th><th>seq</th><th>payload</th><th>撤销目标</th><th>状态</th></tr></thead>
+          <tbody id="event-rows"></tbody>
+        </table>
+      </section>
+
+      <!-- 回放页 -->
+      <section id="sec-replay" style="display:none">
+        <div class="slider-row">
+          <button class="ghost" onclick="replayAt(-1)">⏮ 最终</button>
+          <input id="r-slider" type="range" min="0" max="0" value="0" oninput="replayAt(this.value)">
+          <span class="mono" id="r-time">—</span>
+        </div>
+        <div class="hint" id="r-meta"></div>
+        <div id="replay-state" style="margin-top:12px"></div>
+      </section>
+
+      <!-- 差异页 -->
+      <section id="sec-diff" style="display:none">
+        <div class="grid2">
+          <div><label>从时刻 from</label><select id="d-from"></select></div>
+          <div><label>到时刻 to</label><select id="d-to"></select></div>
+        </div>
+        <button onclick="runDiff()">比较差异</button>
+        <div id="diff-result" style="margin-top:14px"></div>
+      </section>
+
+      <!-- 导出页 -->
+      <section id="sec-export" style="display:none">
+        <p>导出该流程的完整回放结果：回放顺序事件、最终状态、逐时刻快照。</p>
+        <p style="margin-top:10px"><a class="dl" id="export-link" href="#" download>⬇ 下载 replay JSON</a></p>
+        <pre id="export-preview" class="mono" style="margin-top:14px;max-height:420px;overflow:auto;background:var(--panel2);padding:12px;border-radius:8px"></pre>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let currentFlow = null, eventTimes = [], cancelledIds = [];
+
+const $ = id => document.getElementById(id);
+const fmt = iso => iso ? new Date(iso).toLocaleString('zh-CN', {hour12:false}) : '—';
+function toast(msg, err=false) {
+  const t = $('toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : '');
+  t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3200);
+}
+async function api(path, opts={}) {
+  const r = await fetch(path, {headers: {'Content-Type': 'application/json'}, ...opts});
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || r.statusText); }
+  return r.status === 204 ? null : r.json();
+}
+
+/* ---------- 流程 ---------- */
+async function loadFlows() {
+  const flows = await api('/api/flows');
+  $('flow-list').innerHTML = flows.length ? '' : '<div class="empty">暂无流程，请先创建</div>';
+  for (const f of flows) {
+    const div = document.createElement('div');
+    div.className = 'flow-item' + (currentFlow && currentFlow.id === f.id ? ' active' : '');
+    div.innerHTML = `<button class="del" title="删除" onclick="event.stopPropagation();deleteFlow(${f.id})">✕</button>
+      <b>${esc(f.name)}</b> <span class="badge b-pending">${esc(f.version)}</span>
+      <div class="meta">#${f.id} · ${f.event_count} 个事件 · ${fmt(f.created_at)}</div>`;
+    div.onclick = () => selectFlow(f);
+    $('flow-list').appendChild(div);
+  }
+}
+async function createFlow() {
+  try {
+    const f = await api('/api/flows', {method: 'POST', body: JSON.stringify({
+      name: $('f-name').value.trim(), version: $('f-version').value.trim(),
+      description: $('f-desc').value.trim()})});
+    toast('流程已创建'); $('f-name').value = $('f-version').value = $('f-desc').value = '';
+    await loadFlows(); selectFlow(f);
+  } catch (e) { toast(e.message, true); }
+}
+async function deleteFlow(id) {
+  if (!confirm('删除该流程及其全部事件？')) return;
+  await api('/api/flows/' + id, {method: 'DELETE'});
+  if (currentFlow && currentFlow.id === id) { currentFlow = null; $('workspace').style.display = 'none'; }
+  loadFlows();
+}
+function selectFlow(f) {
+  currentFlow = f;
+  $('workspace').style.display = 'block';
+  $('ws-title').textContent = `流程 #${f.id} · ${f.name} (${f.version})`;
+  $('export-link').href = `/api/flows/${f.id}/export`;
+  loadFlows(); refreshAll();
+}
+
+/* ---------- 事件 ---------- */
+function onTypeChange() { $('e-target').disabled = $('e-type').value !== 'undone'; }
+async function appendEvent() {
+  try {
+    const body = {
+      step_id: $('e-step').value.trim(),
+      event_type: $('e-type').value,
+      seq: $('e-seq').value === '' ? null : +$('e-seq').value,
+      payload: $('e-payload').value.trim() ? JSON.parse($('e-payload').value) : {},
+    };
+    if ($('e-time').value) body.event_time = new Date($('e-time').value).toISOString();
+    if ($('e-target').value !== '') body.target_event_id = +$('e-target').value;
+    await api(`/api/flows/${currentFlow.id}/events`, {method: 'POST', body: JSON.stringify(body)});
+    toast('事件已追加'); refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+async function seedDemo() {
+  const now = Date.now(), iso = ms => new Date(now + ms).toISOString();
+  const post = b => api(`/api/flows/${currentFlow.id}/events`, {method: 'POST', body: JSON.stringify(b)});
+  try {
+    const e1 = await post({step_id: '配制溶液', event_type: 'started',   event_time: iso(0),     seq: 1, payload: {operator: '张三'}});
+    await post({step_id: '配制溶液', event_type: 'completed', event_time: iso(60000),  seq: 2, payload: {volume_ml: 500}});
+    const e3 = await post({step_id: '加热反应', event_type: 'started',   event_time: iso(120000), seq: 3, payload: {temp_c: 80}});
+    await post({step_id: '加热反应', event_type: 'failed',    event_time: iso(180000), seq: 4, payload: {reason: '温度超限'}});
+    // 乱序：时间戳更早的事件后到
+    await post({step_id: '校准仪器', event_type: 'started',   event_time: iso(-60000), seq: 0, payload: {device: 'pH计'}});
+    await post({step_id: '校准仪器', event_type: 'completed', event_time: iso(-30000), seq: 0, payload: {result: 'OK'}});
+    // 撤销：取消“加热反应 failed”
+    await post({step_id: '加热反应', event_type: 'undone', event_time: iso(240000), seq: 5, target_event_id: e3.id});
+    toast('示例事件已填充（含乱序与撤销）'); refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+async function loadEvents(order) {
+  const events = await api(`/api/flows/${currentFlow.id}/events?order=${order}`);
+  $('ord-received').style.borderColor = order === 'received' ? 'var(--accent)' : '';
+  $('ord-replay').style.borderColor = order === 'replay' ? 'var(--accent)' : '';
+  const tb = $('event-rows'); tb.innerHTML = '';
+  for (const e of events) {
+    const cancelled = cancelledIds.includes(e.id);
+    const tr = document.createElement('tr');
+    if (cancelled) tr.className = 'row-cancelled';
+    tr.innerHTML = `<td class="mono">${e.id}</td><td>${esc(e.step_id)}</td><td>${e.event_type}</td>
+      <td class="mono">${fmt(e.event_time)}</td><td>${e.seq ?? ''}</td>
+      <td class="mono">${esc(JSON.stringify(e.payload))}</td>
+      <td class="mono">${e.target_event_id ?? ''}</td>
+      <td>${cancelled ? '<span class="badge b-cancelled">已撤销</span>' : ''}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+/* ---------- 回放 ---------- */
+async function refreshReplay() {
+  const events = await api(`/api/flows/${currentFlow.id}/events?order=replay`);
+  eventTimes = [...new Set(events.map(e => e.event_time))];
+  const s = $('r-slider'); s.max = Math.max(eventTimes.length - 1, 0); s.value = s.max;
+  replayAt(-1);
+}
+async function replayAt(idx) {
+  const at = idx >= 0 && eventTimes.length ? eventTimes[idx] : null;
+  const st = await api(`/api/flows/${currentFlow.id}/replay` + (at ? `?at=${encodeURIComponent(at)}` : ''));
+  cancelledIds = st.cancelled_event_ids;
+  $('r-time').textContent = at ? fmt(at) : '最终状态';
+  $('r-meta').textContent = `参与事件 ${st.event_count} 个 · 生效 ${st.applied_event_ids.length} 个 · 被撤销 ${st.cancelled_event_ids.length} 个（ID: ${st.cancelled_event_ids.join(', ') || '无'}）`;
+  const div = $('replay-state');
+  if (!st.steps.length) { div.innerHTML = '<div class="empty">该时刻暂无步骤状态</div>'; return; }
+  div.innerHTML = `<table><thead><tr><th>步骤</th><th>状态</th><th>数据</th><th>最后事件</th></tr></thead><tbody>${
+    st.steps.map(s => `<tr><td>${esc(s.step_id)}</td>
+      <td><span class="badge b-${s.status}">${s.status}</span></td>
+      <td class="mono">${esc(JSON.stringify(s.data))}</td>
+      <td class="mono">#${s.last_event_id ?? ''}</td></tr>`).join('')
+  }</tbody></table>`;
+}
+
+/* ---------- 差异 ---------- */
+function refreshDiffSelectors() {
+  const opts = eventTimes.map(t => `<option value="${t}">${fmt(t)}</option>`).join('');
+  $('d-from').innerHTML = opts; $('d-to').innerHTML = opts;
+  if (eventTimes.length > 1) $('d-to').selectedIndex = eventTimes.length - 1;
+}
+async function runDiff() {
+  try {
+    const p = new URLSearchParams({from: $('d-from').value, to: $('d-to').value});
+    const d = await api(`/api/flows/${currentFlow.id}/diff?${p}`);
+    const div = $('diff-result');
+    let html = '';
+    if (d.added.length) html += `<h3 class="diff-add">＋ 新增步骤</h3>` + d.added.map(s =>
+      `<div class="diff-add mono">${esc(s.step_id)} → ${s.status} ${esc(JSON.stringify(s.data))}</div>`).join('');
+    if (d.removed.length) html += `<h3 class="diff-del">－ 消失步骤</h3>` + d.removed.map(s =>
+      `<div class="diff-del mono">${esc(s.step_id)}（原状态 ${s.status}）</div>`).join('');
+    if (d.changed.length) html += `<h3 class="diff-chg">≠ 变化步骤</h3>` + d.changed.map(c => {
+      let line = `<div class="diff-chg mono"><b>${esc(c.step_id)}</b>`;
+      if (c.status) line += ` 状态: ${c.status.from} → ${c.status.to}`;
+      if (c.data) for (const [k, v] of Object.entries(c.data))
+        line += `<br>&nbsp;&nbsp;${esc(k)}: ${esc(JSON.stringify(v.from))} → ${esc(JSON.stringify(v.to))}`;
+      return line + '</div>';
+    }).join('');
+    div.innerHTML = html || '<div class="empty">两个时刻状态一致，无差异</div>';
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ---------- 导出 ---------- */
+async function refreshExport() {
+  const data = await api(`/api/flows/${currentFlow.id}/export`);
+  $('export-preview').textContent = JSON.stringify(data, null, 2);
+}
+
+/* ---------- 通用 ---------- */
+function showTab(name) {
+  for (const t of ['events', 'replay', 'diff', 'export']) {
+    $('sec-' + t).style.display = t === name ? 'block' : 'none';
+    $('tab-' + t).className = t === name ? 'active' : '';
+  }
+  if (name === 'export') refreshExport();
+}
+async function refreshAll() {
+  await refreshReplay();          // 先拿回放结果以更新 cancelledIds
+  await loadEvents('received');
+  refreshDiffSelectors();
+  loadFlows();
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+loadFlows();
+</script>
+</body>
+</html>
