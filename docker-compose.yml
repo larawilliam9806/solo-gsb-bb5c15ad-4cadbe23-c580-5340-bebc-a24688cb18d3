@@ -1,0 +1,19 @@
+services:
+  replay-console:
+    build: .
+    image: event-replay-console:latest
+    container_name: event-replay-console
+    restart: unless-stopped
+    environment:
+      # 启动时自动写入一份演示流程（含乱序/撤销事件），如不需要改为 false
+      SEED_ON_STARTUP: "true"
+      DB_PATH: /data/replay.db
+      HOST: 0.0.0.0
+      PORT: "8000"          # 容器内监听端口，一般无需修改
+    ports:
+      - "${HOST_PORT:-8000}:8000"   # 修改宿主机端口：HOST_PORT=9000 docker compose up
+    volumes:
+      - replay-data:/data
+
+volumes:
+  replay-data:

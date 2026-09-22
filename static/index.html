@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实验流程事件回放台</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #181f2e; --panel2: #1f2839; --line: #2b3650;
+    --text: #e6ebf5; --muted: #8a97b0; --accent: #4f8cff; --accent2: #2f6bdb;
+    --green: #38c172; --red: #ef5b5b; --amber: #f5a623; --purple: #a974ff;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.55 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 22px;
+           background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  button { cursor: pointer; border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+           border-radius: 8px; padding: 7px 14px; font-size: 13px; transition: .15s; }
+  button:hover { border-color: var(--accent); color: #fff; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent2); }
+  button.danger { color: #ffb4b4; }
+  button.danger:hover { border-color: var(--red); color: #fff; background: #3a2026; }
+  button.sm { padding: 3px 9px; font-size: 12px; }
+  input, select, textarea { width: 100%; background: var(--bg); color: var(--text);
+           border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+           font-family: inherit; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .layout { display: flex; min-height: calc(100vh - 57px); }
+  aside { width: 290px; border-right: 1px solid var(--line); background: var(--panel);
+          padding: 14px; overflow-y: auto; }
+  aside h2 { font-size: 12px; color: var(--muted); text-transform: uppercase;
+             letter-spacing: .08em; margin: 6px 4px 10px; }
+  .proc { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+          margin-bottom: 8px; cursor: pointer; background: var(--panel2); }
+  .proc:hover { border-color: var(--accent); }
+  .proc.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .proc .name { font-weight: 600; word-break: break-all; }
+  .proc .meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  main { flex: 1; padding: 20px 24px; overflow-y: auto; }
+  .empty { color: var(--muted); text-align: center; padding: 80px 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 16px 18px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .card h3 .tag { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  tr:hover td { background: rgba(79,140,255,.06); }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px;
+           border: 1px solid var(--line); white-space: nowrap; }
+  .badge.add { color: var(--green); border-color: #2c5e44; }
+  .badge.update { color: var(--amber); border-color: #6b5220; }
+  .badge.remove { color: var(--red); border-color: #6e3030; }
+  .badge.revoked { color: var(--muted); }
+  .badge.new { color: var(--green); }
+  .badge.gone { color: var(--red); }
+  .badge.chg { color: var(--purple); }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 180px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pane { display: none; }
+  .pane.on { display: block; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  .stat { display: inline-block; background: var(--panel2); border: 1px solid var(--line);
+          border-radius: 8px; padding: 4px 10px; margin-right: 8px; font-size: 12px; }
+  .stat b { color: var(--accent); }
+  .diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .diff-box { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .diff-box h4 { margin: 0 0 8px; font-size: 13px; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+           background: #26314a; border: 1px solid var(--line); padding: 10px 20px;
+           border-radius: 10px; opacity: 0; pointer-events: none; transition: .25s; z-index: 99; }
+  .toast.show { opacity: 1; }
+  .toast.err { border-color: var(--red); }
+  .modal-bg { position: fixed; inset: 0; background: rgba(5,8,15,.65); display: none;
+              align-items: center; justify-content: center; z-index: 50; }
+  .modal-bg.on { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+           width: 460px; max-width: 92vw; padding: 20px 22px; }
+  .modal h3 { margin: 0 0 6px; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧪 实验流程事件回放台</h1>
+  <span class="sub">事件溯源 · 乱序重放 · 撤销 · 任意时刻差异 · JSON / CSV 导出</span>
+  <span class="spacer"></span>
+  <button id="btn-seed">写入演示数据</button>
+  <button class="primary" id="btn-new">＋ 新建流程</button>
+</header>
+
+<div class="layout">
+  <aside>
+    <h2>流程列表（带版本号）</h2>
+    <div id="proc-list"></div>
+  </aside>
+  <main id="main">
+    <div class="empty">
+      从左侧选择一个流程，或点击右上角「＋ 新建流程」开始。<br><br>
+      也可先「写入演示数据」体验乱序到达与事件撤销后的重放。
+    </div>
+  </main>
+</div>
+
+<!-- 新建流程弹窗 -->
+<div class="modal-bg" id="modal-proc">
+  <div class="modal">
+    <h3>新建流程</h3>
+    <label>流程名称 *</label>
+    <input id="np-name" placeholder="例如：粒子加速实验">
+    <label>版本号 *</label>
+    <input id="np-version" placeholder="例如：1.0.0">
+    <label>备注</label>
+    <input id="np-note" placeholder="可选">
+    <div class="actions">
+      <button id="np-cancel">取消</button>
+      <button class="primary" id="np-ok">创建</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+// ---------------- 通用工具 ----------------
+const $ = (sel) => document.querySelector(sel);
+
+function toast(msg, isErr) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.className = "toast show" + (isErr ? " err" : "");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.className = "toast", 2600);
+}
+
+async function api(method, url, body) {
+  const opt = { method, headers: {} };
+  if (body !== undefined) {
+    opt.headers["Content-Type"] = "application/json";
+    opt.body = JSON.stringify(body);
+  }
+  const resp = await fetch(url, opt);
+  if (resp.status === 204) return null;
+  let data = null;
+  const ct = resp.headers.get("content-type") || "";
+  if (ct.includes("application/json")) data = await resp.json();
+  if (!resp.ok) {
+    const detail = data && data.detail ? data.detail : resp.statusText;
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return data;
+}
+
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function fmtLocal(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleString("zh-CN", { hour12: false }) + "." +
+         String(d.getMilliseconds()).padStart(3, "0");
+}
+
+function toLocalInput(iso) {
+  const d = new Date(iso), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function fromLocalInput(value) {
+  return value ? new Date(value).toISOString() : null;
+}
+
+function dataPreview(data) {
+  const s = JSON.stringify(data);
+  return s === "{}" ? '<span class="muted">{}</span>' : `<pre>${esc(s)}</pre>`;
+}
+
+// ---------------- 状态 ----------------
+let processes = [];
+let currentPid = null;
+
+// ---------------- 流程列表 ----------------
+async function loadProcesses(selectPid) {
+  processes = await api("GET", "/api/processes");
+  const box = $("#proc-list");
+  if (!processes.length) {
+    box.innerHTML = '<div class="muted" style="padding:6px 4px">暂无流程</div>';
+  } else {
+    box.innerHTML = processes.map(p => `
+      <div class="proc ${p.id === currentPid ? "active" : ""}" data-id="${p.id}">
+        <div class="name">${esc(p.name)} <span class="muted">@${esc(p.version)}</span></div>
+        <div class="meta">${p.event_count} 个事件 · 最近 ${p.last_ts ? fmtLocal(p.last_ts) : "—"}</div>
+      </div>`).join("");
+    box.querySelectorAll(".proc").forEach(el =>
+      el.addEventListener("click", () => selectProcess(Number(el.dataset.id))));
+  }
+  if (selectPid) selectProcess(selectPid);
+}
+
+// ---------------- 主视图 ----------------
+async function selectProcess(pid) {
+  currentPid = pid;
+  await loadProcesses();
+  const detail = await api("GET", `/api/processes/${pid}`);
+  renderMain(detail);
+  runReplay();
+  runDiff();
+}
+
+function renderMain(p) {
+  const events = p.events;
+  $("#main").innerHTML = `
+    <div class="card">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="flex:1">
+          <h3 style="margin:0">${esc(p.name)}
+            <span class="tag">版本 ${esc(p.version)}</span>
+            <span class="tag">· 创建于 ${fmtLocal(p.created_at)}</span></h3>
+          <div class="muted">${esc(p.note) || "（无备注）"} · 共 ${events.length} 个事件（含被撤销）</div>
+        </div>
+        <button class="danger sm" id="btn-del-proc">删除流程</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="on" data-pane="events">事件 (${events.length})</button>
+      <button data-pane="add">追加事件</button>
+      <button data-pane="replay">重放</button>
+      <button data-pane="diff">差异</button>
+    </div>
+
+    <div class="pane on" id="pane-events">
+      <div class="card">
+        <h3>追加顺序事件日志 <span class="tag">重放时按 (时间戳, 追加序号) 排序；乱序晚到也能正确归位</span></h3>
+        ${events.length ? eventTableHtml(events) : '<div class="muted">还没有事件，切到「追加事件」添加。</div>'}
+      </div>
+    </div>
+
+    <div class="pane" id="pane-add">
+      <div class="card">
+        <h3>追加带时间戳的步骤事件 <span class="tag">时间戳可晚于/早于已有事件</span></h3>
+        <div class="grid">
+          <div>
+            <label>事件类型</label>
+            <select id="ev-kind">
+              <option value="add">add — 新增步骤</option>
+              <option value="update">update — 更新步骤（data 浅合并）</option>
+              <option value="remove">remove — 撤销（移除）步骤</option>
+            </select>
+          </div>
+          <div>
+            <label>步骤键 step_key *</label>
+            <input id="ev-key" placeholder="例如：inject">
+          </div>
+          <div>
+            <label>步骤标题</label>
+            <input id="ev-title" placeholder="例如：粒子注入">
+          </div>
+          <div>
+            <label>时间戳（本地时间，留空=现在）</label>
+            <input id="ev-ts" type="datetime-local" step="1">
+          </div>
+        </div>
+        <label>data（JSON 对象）</label>
+        <textarea id="ev-data" rows="4" placeholder='{"voltage_kv": 12.5}'>{}</textarea>
+        <div style="margin-top:12px"><button class="primary" id="ev-submit">追加事件</button></div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-replay">
+      <div class="card">
+        <h3>任意时刻重放 <span class="tag">只折叠时间戳 ≤ 此刻且未被撤销的事件</span></h3>
+        <div class="row">
+          <div>
+            <label>重放到此刻 at（本地时间，留空 = 最新）</label>
+            <input id="rp-at" type="datetime-local" step="1">
+          </div>
+          <div style="flex:0">
+            <button class="primary" id="rp-run">重放</button>
+            <button id="rp-clear">回到最新</button>
+          </div>
+          <div style="flex:0;min-width:0">
+            <label>导出回放结果</label>
+            <button class="sm" id="rp-json">⬇ JSON</button>
+            <button class="sm" id="rp-csv">⬇ CSV</button>
+          </div>
+        </div>
+        <div id="rp-result" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-diff">
+      <div class="card">
+        <h3>两个时刻的状态差异 <span class="tag">from 留空 = 流程起点（空状态），to 留空 = 最新</span></h3>
+        <div class="row">
+          <div>
+            <label>from</label>
+            <input id="df-from" type="datetime-local" step="1">
+          </div>
+          <div>
+            <label>to</label>
+            <input id="df-to" type="datetime-local" step="1">
+          </div>
+          <div style="flex:0"><button class="primary" id="df-run">计算差异</button></div>
+        </div>
+        <div id="df-result" style="margin-top:14px"></div>
+      </div>
+    </div>`;
+
+  // tabs
+  document.querySelectorAll(".tabs button").forEach(btn => btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("on"));
+    document.querySelectorAll(".pane").forEach(p => p.classList.remove("on"));
+    btn.classList.add("on");
+    $("#pane-" + btn.dataset.pane).classList.add("on");
+  }));
+
+  // event actions
+  document.querySelectorAll("[data-revoke]").forEach(b => b.addEventListener("click", async () => {
+    const id = Number(b.dataset.id);
+    const revoke = b.dataset.revoke === "1";
+    await api("PATCH", `/api/processes/${currentPid}/events/${id}`, { revoked: revoke });
+    toast(revoke ? "事件已撤销" : "事件已恢复");
+    await selectProcess(currentPid);
+  }));
+  document.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("确定硬删除该事件？此操作不可恢复。")) return;
+    await api("DELETE", `/api/processes/${currentPid}/events/${b.dataset.del}`);
+    toast("事件已删除");
+    await selectProcess(currentPid);
+  }));
+  document.querySelectorAll("[data-atfill]").forEach(b => b.addEventListener("click", () => {
+    $("#rp-at").value = toLocalInput(b.dataset.atfill);
+    document.querySelector('.tabs button[data-pane="replay"]').click();
+    runReplay();
+  }));
+
+  $("#btn-del-proc").addEventListener("click", deleteProcess);
+  $("#ev-submit").addEventListener("click", addEvent);
+  $("#rp-run").addEventListener("click", runReplay);
+  $("#rp-clear").addEventListener("click", () => { $("#rp-at").value = ""; runReplay(); });
+  $("#rp-json").addEventListener("click", () => doExport("json"));
+  $("#rp-csv").addEventListener("click", () => doExport("csv"));
+  $("#df-run").addEventListener("click", runDiff);
+}
+
+function eventTableHtml(events) {
+  const rows = events.map(e => `
+    <tr style="${e.revoked ? "opacity:.5" : ""}">
+      <td>${e.seq}</td>
+      <td><span class="muted">${fmtLocal(e.ts)}</span></td>
+      <td><span class="badge ${e.kind}">${e.kind}</span></td>
+      <td><code>${esc(e.step_key)}</code></td>
+      <td>${esc(e.title)}</td>
+      <td style="min-width:170px">${dataPreview(e.data)}</td>
+      <td>${e.revoked ? '<span class="badge revoked">已撤销</span>' : '<span class="muted">有效</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="sm" data-atfill="${esc(e.ts)}">此刻重放</button><br style="margin:2px">
+        <button class="sm" data-revoke="${e.revoked ? 0 : 1}" data-id="${e.id}">${e.revoked ? "恢复" : "撤销"}</button>
+        <button class="sm danger" data-del="${e.id}">删除</button>
+      </td>
+    </tr>`).join("");
+  return `<table>
+    <thead><tr><th>#</th><th>时间戳</th><th>类型</th><th>step_key</th><th>标题</th><th>data</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+// ---------------- 动作 ----------------
+async function addEvent() {
+  let data;
+  try {
+    data = JSON.parse($("#ev-data").value || "{}");
+    if (Array.isArray(data) || data === null || typeof data !== "object") throw new Error();
+  } catch {
+    return toast("data 必须是合法的 JSON 对象", true);
+  }
+  const payload = {
+    kind: $("#ev-kind").value,
+    step_key: $("#ev-key").value.trim(),
+    title: $("#ev-title").value.trim(),
+    data,
+    ts: fromLocalInput($("#ev-ts").value),
+  };
+  if (!payload.step_key) return toast("step_key 必填", true);
+  try {
+    await api("POST", `/api/processes/${currentPid}/events`, payload);
+    toast("事件已追加");
+    await selectProcess(currentPid);
+    document.querySelector('.tabs button[data-pane="replay"]').click();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function deleteProcess() {
+  if (!confirm("确定删除该流程及其全部事件？")) return;
+  await api("DELETE", `/api/processes/${currentPid}`);
+  currentPid = null;
+  $("#main").innerHTML = '<div class="empty">流程已删除。</div>';
+  toast("流程已删除");
+  loadProcesses();
+}
+
+async function runReplay() {
+  const at = $("#rp-at") ? fromLocalInput($("#rp-at").value) : null;
+  const qs = at ? "?at=" + encodeURIComponent(at) : "";
+  const r = await api("GET", `/api/processes/${currentPid}/replay${qs}`);
+  $("#rp-result").innerHTML = replayHtml(r);
+}
+
+function replayHtml(r) {
+  const stateRows = r.state.length ? r.state.map((s, i) => `
+    <tr><td>${i+1}</td><td><code>${esc(s.step_key)}</code></td>
+        <td>${esc(s.title)}</td><td style="min-width:200px">${dataPreview(s.data)}</td></tr>`).join("")
+    : '<tr><td colspan="4" class="muted">该时刻状态为空</td></tr>';
+
+  const evList = (arr, showReason) => arr.length
+    ? `<table><tbody>${arr.map(e => `<tr>
+        <td><span class="badge ${e.kind}">${e.kind}</span></td>
+        <td><code>${esc(e.step_key)}</code></td>
+        <td class="muted">${fmtLocal(e.ts)} · #${e.seq}</td>
+        <td>${e.reason ? `<span class="muted">${esc(e.reason)}</span>` : ""}</td></tr>`).join("")}</tbody></table>`
+    : '<div class="muted">无</div>';
+
+  return `
+    <div class="stat">重放到 <b>${r.at ? fmtLocal(r.at) : "最新"}</b></div>
+    <span class="stat">参与折叠 <b>${r.counts.considered}</b></span>
+    <span class="stat">生效 <b>${r.counts.applied}</b></span>
+    <span class="stat">时刻之后被跳过 <b>${r.counts.skipped}</b></span>
+    <span class="stat">撤销/无效 <b>${r.counts.ignored}</b></span>
+    <h3 style="margin-top:16px">重放后状态（${r.state.length} 个步骤）</h3>
+    <table><thead><tr><th>#</th><th>step_key</th><th>标题</th><th>data</th></tr></thead>
+      <tbody>${stateRows}</tbody></table>
+    <details><summary>生效事件顺序（${r.applied.length}）</summary>${evList(r.applied)}</details>
+    <details><summary>时刻之后被跳过（${r.skipped.length}）</summary>${evList(r.skipped)}</details>
+    <details><summary>未参与：已撤销 / 目标缺失（${r.ignored.length}）</summary>${evList(r.ignored)}</details>`;
+}
+
+async function runDiff() {
+  if (!currentPid || !$("#df-result")) return;
+  const from = fromLocalInput($("#df-from").value);
+  const to = fromLocalInput($("#df-to").value);
+  const qs = new URLSearchParams();
+  if (from) qs.set("from", from);
+  if (to) qs.set("to", to);
+  const r = await api("GET", `/api/processes/${currentPid}/diff?${qs}`);
+  $("#df-result").innerHTML = diffHtml(r);
+}
+
+function stepLine(s) {
+  return `<div style="margin-bottom:6px"><code>${esc(s.step_key)}</code> ${esc(s.title)} ${dataPreview(s.data)}</div>`;
+}
+function diffHtml(r) {
+  const changed = r.changed.map(c => `
+    <div style="margin-bottom:10px">
+      <code>${esc(c.step_key)}</code>
+      <div class="diff-grid" style="margin-top:4px">
+        <div class="diff-box"><h4 class="muted">from</h4>${stepLine(c.before)}</div>
+        <div class="diff-box"><h4 class="muted">to</h4>${stepLine(c.after)}</div>
+      </div>
+    </div>`).join("") || '<div class="muted">无</div>';
+  return `
+    <div class="stat">新增 <b>${r.summary.added}</b></div>
+    <div class="stat">移除 <b>${r.summary.removed}</b></div>
+    <div class="stat">变更 <b>${r.summary.changed}</b></div>
+    <div class="stat">未变 <b>${r.summary.unchanged}</b></div>
+    <div class="diff-grid" style="margin-top:12px">
+      <div class="diff-box"><h4><span class="badge new">新增的步骤</span></h4>
+        ${r.added.map(stepLine).join("") || '<span class="muted">无</span>'}</div>
+      <div class="diff-box"><h4><span class="badge gone">移除的步骤</span></h4>
+        ${r.removed.map(stepLine).join("") || '<span class="muted">无</span>'}</div>
+    </div>
+    <div class="diff-box" style="margin-top:12px"><h4><span class="badge chg">变更的步骤</span></h4>${changed}</div>`;
+}
+
+function doExport(fmt) {
+  const at = fromLocalInput($("#rp-at").value);
+  const qs = at ? "?at=" + encodeURIComponent(at) : "";
+  window.location.href = `/api/processes/${currentPid}/export.${fmt}${qs}`;
+}
+
+// ---------------- 新建流程弹窗 & 种子 ----------------
+function openProcModal(on) { $("#modal-proc").classList.toggle("on", !!on); }
+
+$("#btn-new").addEventListener("click", () => {
+  $("#np-name").value = ""; $("#np-version").value = "1.0.0"; $("#np-note").value = "";
+  openProcModal(true);
+});
+$("#np-cancel").addEventListener("click", () => openProcModal(false));
+$("#np-ok").addEventListener("click", async () => {
+  const name = $("#np-name").value.trim(), version = $("#np-version").value.trim();
+  if (!name || !version) return toast("名称与版本号必填", true);
+  try {
+    const p = await api("POST", "/api/processes", { name, version, note: $("#np-note").value.trim() });
+    openProcModal(false);
+    toast("流程已创建");
+    await loadProcesses(p.id);
+  } catch (err) { toast(err.message, true); }
+});
+
+$("#btn-seed").addEventListener("click", async () => {
+  try {
+    const p = await api("POST", "/api/seed");
+    toast("演示数据已写入");
+    await loadProcesses(p.id);
+  } catch (err) { toast(err.message, true); }
+});
+
+// ---------------- 启动 ----------------
+loadProcesses();
+</script>
+</body>
+</html>
